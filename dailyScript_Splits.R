@@ -1,12 +1,15 @@
 library(rredis)
 library(RCurl)
 library(stringi)
+library(RQuantLib)
+library(gmailr)
 
 
 setwd("/home/psharma/Dropbox/rfiles/daily")
 splits <-  read.csv("splits.csv", header = TRUE, stringsAsFactors = FALSE)
 redisConnect()
 redisSelect(2)
+
 for(i in 1:nrow(splits)){
   redisString = paste(strftime(splits$date[i],"%Y%m%d"),splits$symbol[i],splits$oldshares[i],splits$newshares[i],splits$X[i], sep = "_")
   redisSAdd("splits",charToRaw(redisString))
@@ -152,3 +155,90 @@ for(i in 1:nrow(symbolchange)){
   redisSAdd("symbolchange",charToRaw(redisString))
 }
 
+#download board meetings
+myOpts<-curlOptions(
+  referer="https://nseindia.com/corporates/corporateHome.html?id=eqResultCalendar",
+  verbose = TRUE,
+  followLocation = TRUE,
+  useragent = "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.6; en-US; rv:1.9.2.13) Gecko/20101203 Firefox/3.6.13"
+)
+
+jfile <- getURL("https://www1.nseindia.com/corporates/datafiles/BM_Last_24_Months.csv",.opts=myOpts)
+writeChar(jfile, paste("splits/boardmeeting_",strftime(Sys.Date(),"%Y%m%d"),".csv",sep=""))
+bm <-  read.csv(paste("splits/boardmeeting_",strftime(Sys.Date(),"%Y%m%d"),".csv",sep=""), header = TRUE, stringsAsFactors = FALSE)
+purpose<-trimws(bm$Purpose)
+purpose<-gsub(" ","",bm$Purpose,fixed=TRUE)
+bmdate<-as.Date(bm$BoardMeetingDate,format="%d-%b-%Y",tz="Asia/Kolkata")
+bmdate<-strftime(bmdate,"%Y%m%d")
+symbol<-trimws(bm$Symbol)
+for(i in 1:length(symbol)){
+  redisString = paste(bmdate[i],symbol[i],purpose[i], sep = "_")
+  redisZAdd("boardmeeting",as.numeric(bmdate[i]),charToRaw(redisString))
+}
+
+
+jfile <- getURL("https://www1.nseindia.com/corporates/datafiles/BM_Today.csv",
+                .opts=myOpts)
+writeChar(jfile, paste("splits/boardmeeting_",strftime(Sys.Date(),"%Y%m%d"),".csv",sep=""))
+bm <-  read.csv(paste("splits/boardmeeting_",strftime(Sys.Date(),"%Y%m%d"),".csv",sep=""), header = TRUE, stringsAsFactors = FALSE)
+purpose<-trimws(bm$Purpose)
+purpose<-gsub(" ","",bm$Purpose,fixed=TRUE)
+bmdate<-as.Date(bm$BoardMeetingDate,format="%d-%b-%Y",tz="Asia/Kolkata")
+bmdate<-strftime(bmdate,"%Y%m%d")
+symbol<-trimws(bm$Symbol)
+for(i in 1:length(symbol)){
+  redisString = paste(bmdate[i],symbol[i],purpose[i], sep = "_")
+  redisZAdd("boardmeeting",as.numeric(bmdate[i]),charToRaw(redisString))
+}
+
+jfile <- getURL("https://www1.nseindia.com/corporates/datafiles/BM_All_Forthcoming.csv",
+                .opts=myOpts)
+writeChar(jfile, paste("splits/boardmeeting_",strftime(Sys.Date(),"%Y%m%d"),".csv",sep=""))
+bm <-  read.csv(paste("splits/boardmeeting_",strftime(Sys.Date(),"%Y%m%d"),".csv",sep=""), header = TRUE, stringsAsFactors = FALSE)
+purpose<-trimws(bm$Purpose)
+purpose<-gsub(" ","",bm$Purpose,fixed=TRUE)
+bmdate<-as.Date(bm$BoardMeetingDate,format="%d-%b-%Y",tz="Asia/Kolkata")
+bmdate<-strftime(bmdate,"%Y%m%d")
+symbol<-trimws(bm$Symbol)
+for(i in 1:length(symbol)){
+  redisString = paste(bmdate[i],symbol[i],purpose[i], sep = "_")
+  redisZAdd("boardmeeting",as.numeric(bmdate[i]),charToRaw(redisString))
+}
+
+startingdate=strftime(Sys.Date(),"%Y%m%d")
+startingdate=as.numeric(startingdate)
+endingdate=advance("India",dates=Sys.Date(),5,0)
+enddingdate=as.Date(endingdate,tz="Asia/Kolkata")
+enddingdate=strftime(enddingdate,"%Y%m%d")
+enddingdate=as.numeric(enddingdate)
+
+meetings<-unlist(redisZRangeByScore("boardmeeting",min=startingdate,max=enddingdate))
+
+test_email <- mime(
+  To = "psharma@incurrency.com",
+  From = "reporting@incurrency.com",
+  Subject = "BoardMeeting Schedule",
+  body = paste(meetings,collapse='\n'))
+send_message(test_email)
+
+#dividend information
+jfile <- getURL("https://www1.nseindia.com/corporates/datafiles/CA_ALL_FORTHCOMING_DIVIDEND.csv",
+                .opts=myOpts)
+writeChar(jfile, paste("splits/dividend_",strftime(Sys.Date(),"%Y%m%d"),".csv",sep=""))
+div <-  read.csv(paste("splits/dividend_",strftime(Sys.Date(),"%Y%m%d"),".csv",sep=""), header = TRUE, stringsAsFactors = FALSE)
+if(nrow(div)>0){
+  purpose<-gsub(" ","",div$Purpose,fixed=TRUE)
+  purpose<-strsplit(purpose, 'Div')
+  dividend<-sapply(purpose,function(x) x[2])
+  dividend<-as.numeric(unlist(regmatches(dividend,gregexpr("[[:digit:]]+\\.*[[:digit:]]*",dividend))))
+  dividend<-sapply(dividend,function(x) x[1])
+  dividend[is.na(dividend)]<-0
+  divdate<-as.Date(div$Ex.Date,format="%d-%b-%Y",tz="Asia/Kolkata")
+  divdate<-strftime(divdate,"%Y%m%d")
+  symbol<-trimws(div$Symbol)
+  
+  for(i in 1:length(symbol)){
+    redisString = paste(divdate[i],symbol[i],dividend[i], sep = "_")
+    redisZAdd("dividend",as.numeric(divdate[i]),charToRaw(redisString))
+  }  
+}
