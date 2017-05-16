@@ -58,9 +58,11 @@ if(nrow(splitsnew)>0){
   bonus<-sapply(purpose,function(x) x[2])
   splitratio<-strsplit(bonus,":")
   newshares<-sapply(splitratio,function(x) x[1])
+  newshares<-stri_extract_first_regex(newshares, "[0-9]+")
   oldshares<- sapply(splitratio,function(x) x[2])
   oldshares<-strsplit(oldshares,"/")
   oldshares<-lapply(oldshares,function(x) x[1])
+  oldshares<-stri_extract_first_regex(oldshares, "[0-9]+")
   oldshares<-as.numeric(oldshares)
   newshares<-as.numeric(newshares)
   newshares<-newshares+oldshares
